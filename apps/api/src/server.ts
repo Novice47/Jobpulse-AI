@@ -3,6 +3,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { config } from './config/env.js';
 import { connectDB } from './db/connect.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -23,6 +26,9 @@ import { alertsRouter } from './modules/alerts/routes.js';
 import { notificationsRouter } from './modules/notifications/routes.js';
 import { adminRouter } from './modules/admin/routes.js';
 import { seedDatabase } from './seed.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
@@ -45,11 +51,10 @@ app.use(
   })
 );
 
-// 2. Universal CORS Configuration (Supports frontends on any port, localhost, LAN IPs, and custom domains)
+// 2. Universal CORS Configuration
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Dynamically reflect requesting origin to allow frontend clients from any port/host with full credentials
       callback(null, true);
     },
     credentials: true,
@@ -59,18 +64,18 @@ app.use(
   })
 );
 
-// 3. Rate Limiters (Anti-DDoS & Brute Force Shielding)
+// 3. Rate Limiters
 const globalApiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500, // Limit each IP to 500 requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many requests. Please slow down and retry in a few minutes.' },
 });
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // Limit login/signup attempts per IP
+  windowMs: 15 * 60 * 1000,
+  max: 50,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many authentication attempts. Please retry after a few minutes.' },
@@ -78,7 +83,7 @@ const authLimiter = rateLimit({
 
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 35, // Limit resume/AI uploads
+  max: 35,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Upload rate limit reached. Please wait a few moments before next upload.' },
@@ -95,7 +100,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(mongoSanitize);
 
-// 5. Healthcheck Endpoint
+// 5. Healthcheck & API Information Endpoints
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -121,7 +126,35 @@ app.use('/api/v1/alerts', alertsRouter);
 app.use('/api/v1/notifications', notificationsRouter);
 app.use('/api/v1/admin', adminRouter);
 
-// 7. Centralized Error Handler
+// 7. Static Frontend Build Serving (Unified Single-Service Web Host & SPA Fallback)
+const webDistPath = path.resolve(__dirname, '../../../web/dist');
+if (fs.existsSync(webDistPath)) {
+  app.use(express.static(webDistPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path === '/health') {
+      return next();
+    }
+    res.sendFile(path.join(webDistPath, 'index.html'));
+  });
+} else {
+  // Root API Landing Page when backend is deployed as a standalone Web Service
+  app.get('/', (req, res) => {
+    res.json({
+      name: 'JobPulse AI Platform API',
+      status: 'online',
+      health: '/health',
+      endpoints: {
+        jobs: '/api/v1/jobs',
+        market: '/api/v1/market',
+        skills: '/api/v1/skills',
+        salaries: '/api/v1/salaries',
+      },
+      message: 'JobPulse AI Server is running securely.',
+    });
+  });
+}
+
+// 8. Centralized Error Handler
 app.use(errorHandler);
 
 async function startServer() {
