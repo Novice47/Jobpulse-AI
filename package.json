@@ -12,6 +12,9 @@
     "dev:worker": "npm --workspace=apps/worker run dev",
     "build:packages": "npm --workspace=packages/shared-types run build && npm --workspace=packages/validation run build",
     "build": "npm run build:packages && npm --workspace=apps/api run build && npm --workspace=apps/web run build && npm --workspace=apps/worker run build",
+    "start": "npm --workspace=apps/api run start",
+    "start:api": "npm --workspace=apps/api run start",
+    "start:web": "npm --workspace=apps/web run preview",
     "test": "npm run test --workspaces",
     "lint": "npm run lint --workspaces",
     "seed": "npm --workspace=apps/api run seed"
