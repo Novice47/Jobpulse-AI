@@ -15,6 +15,7 @@
     "start": "npm --workspace=apps/api run start",
     "start:api": "npm --workspace=apps/api run start",
     "start:web": "npm --workspace=apps/web run preview",
+    "keep-alive": "node keep-alive.js",
     "test": "npm run test --workspaces",
     "lint": "npm run lint --workspaces",
     "seed": "npm --workspace=apps/api run seed"

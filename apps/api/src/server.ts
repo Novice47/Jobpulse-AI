@@ -10,6 +10,7 @@ import { config } from './config/env.js';
 import { connectDB } from './db/connect.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { mongoSanitize } from './middleware/sanitize.js';
+import { startKeepAliveService } from './services/keepAlive.js';
 
 import { authRouter } from './modules/auth/routes.js';
 import { usersRouter } from './modules/users/routes.js';
@@ -106,6 +107,7 @@ app.get('/health', (req, res) => {
     status: 'ok',
     cors: 'enabled-universal',
     security: 'hardened',
+    keepAlive: 'active',
     timestamp: new Date().toISOString(),
   });
 });
@@ -165,6 +167,8 @@ async function startServer() {
 
   app.listen(config.port, () => {
     console.log(`[JobPulse Platform] Running securely on port ${config.port} (CWD: ${process.cwd()})`);
+    // Start automated self-pinging keep-alive service to prevent server sleeping
+    startKeepAliveService();
   });
 }
 
