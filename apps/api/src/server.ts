@@ -100,7 +100,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(mongoSanitize);
 
-// 5. Healthcheck & API Information Endpoints
+// 5. Healthcheck Endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -126,10 +126,21 @@ app.use('/api/v1/alerts', alertsRouter);
 app.use('/api/v1/notifications', notificationsRouter);
 app.use('/api/v1/admin', adminRouter);
 
-// 7. Static Frontend Build Serving (Unified Single-Service Web Host & SPA Fallback)
-const webDistPath = path.resolve(__dirname, '../../../web/dist');
-if (fs.existsSync(webDistPath)) {
+// 7. Static Frontend Build Serving & Production SPA Fallback Routing
+const candidateWebDistPaths = [
+  path.resolve(__dirname, '../../web/dist'), // Production server: apps/api/dist -> apps/web/dist
+  path.resolve(__dirname, '../../../apps/web/dist'), // Nested dist: apps/api/dist/src -> apps/web/dist
+  path.resolve(process.cwd(), 'apps/web/dist'), // Root working directory
+  path.resolve(process.cwd(), '../web/dist'), // Relative from apps/api directory
+];
+
+const webDistPath = candidateWebDistPaths.find((p) => fs.existsSync(p) && fs.existsSync(path.join(p, 'index.html')));
+
+if (webDistPath) {
+  console.log(`[JobPulse Production Server] Serving static React frontend from: ${webDistPath}`);
   app.use(express.static(webDistPath));
+
+  // SPA Route Fallback: Any non-API request serves the React frontend index.html
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path === '/health') {
       return next();
@@ -137,21 +148,7 @@ if (fs.existsSync(webDistPath)) {
     res.sendFile(path.join(webDistPath, 'index.html'));
   });
 } else {
-  // Root API Landing Page when backend is deployed as a standalone Web Service
-  app.get('/', (req, res) => {
-    res.json({
-      name: 'JobPulse AI Platform API',
-      status: 'online',
-      health: '/health',
-      endpoints: {
-        jobs: '/api/v1/jobs',
-        market: '/api/v1/market',
-        skills: '/api/v1/skills',
-        salaries: '/api/v1/salaries',
-      },
-      message: 'JobPulse AI Server is running securely.',
-    });
-  });
+  console.warn('[JobPulse Production Notice] Frontend dist directory not found. Run "npm run build" to build the React application UI.');
 }
 
 // 8. Centralized Error Handler
@@ -166,7 +163,7 @@ async function startServer() {
   }
 
   app.listen(config.port, () => {
-    console.log(`[JobPulse API] Running securely with universal CORS at http://localhost:${config.port}`);
+    console.log(`[JobPulse Platform] Running securely on port ${config.port} (CWD: ${process.cwd()})`);
   });
 }
 
