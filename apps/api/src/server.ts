@@ -128,28 +128,29 @@ app.use('/api/v1/admin', adminRouter);
 
 // 7. Static Frontend Build Serving & Production SPA Fallback Routing
 const candidateWebDistPaths = [
-  path.resolve(__dirname, '../../web/dist'), // Production server: apps/api/dist -> apps/web/dist
-  path.resolve(__dirname, '../../../apps/web/dist'), // Nested dist: apps/api/dist/src -> apps/web/dist
-  path.resolve(process.cwd(), 'apps/web/dist'), // Root working directory
-  path.resolve(process.cwd(), '../web/dist'), // Relative from apps/api directory
+  path.resolve(__dirname, '../../web/dist'),
+  path.resolve(__dirname, '../../../apps/web/dist'),
+  path.resolve(process.cwd(), 'apps/web/dist'),
+  path.resolve(process.cwd(), '../web/dist'),
+  path.resolve('/opt/render/project/src/apps/web/dist'),
 ];
 
-const webDistPath = candidateWebDistPaths.find((p) => fs.existsSync(p) && fs.existsSync(path.join(p, 'index.html')));
+const resolvedWebDist = candidateWebDistPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || candidateWebDistPaths[0];
 
-if (webDistPath) {
-  console.log(`[JobPulse Production Server] Serving static React frontend from: ${webDistPath}`);
-  app.use(express.static(webDistPath));
+console.log(`[JobPulse Web Server] Serving production React frontend from: ${resolvedWebDist}`);
+app.use(express.static(resolvedWebDist));
 
-  // SPA Route Fallback: Any non-API request serves the React frontend index.html
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path === '/health') {
-      return next();
-    }
-    res.sendFile(path.join(webDistPath, 'index.html'));
-  });
-} else {
-  console.warn('[JobPulse Production Notice] Frontend dist directory not found. Run "npm run build" to build the React application UI.');
-}
+// SPA Route Fallback: All non-API page requests serve the React frontend index.html
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path === '/health') {
+    return next();
+  }
+  const indexPath = path.join(resolvedWebDist, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  next();
+});
 
 // 8. Centralized Error Handler
 app.use(errorHandler);
