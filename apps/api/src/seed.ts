@@ -7,10 +7,11 @@ import { LearningResourceModel } from './models/LearningResource.js';
 import { MarketSnapshotModel } from './models/MarketSnapshot.js';
 import { UserModel } from './models/User.js';
 import { ProfileModel } from './models/Profile.js';
+import { syncRealJobsFromProviders } from './modules/jobs/routes.js';
 
 export async function seedDatabase() {
   const jobCount = await JobModel.countDocuments();
-  if (jobCount > 8) {
+  if (jobCount > 25) {
     console.log('[Seed] Database already seeded with realistic dataset.');
     return { status: 'skipped', count: jobCount };
   }
@@ -358,6 +359,14 @@ export async function seedDatabase() {
     ],
     isSynthetic: false,
   });
+
+  // 9. Sync Real Live Jobs from Active APIs (Arbeitnow, Remotive, Adzuna, Jooble)
+  try {
+    const liveCount = await syncRealJobsFromProviders(30);
+    console.log(`[Seed] Ingested ${liveCount} real live jobs from active providers into MongoDB.`);
+  } catch (syncErr) {
+    console.warn('[Seed] Real live job ingestion notice:', syncErr);
+  }
 
   console.log('[Seed] Successfully populated realistic job market dataset with top companies and roles.');
   return { status: 'success', jobCount: jobsData.length };

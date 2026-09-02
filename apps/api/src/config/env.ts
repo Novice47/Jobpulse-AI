@@ -20,4 +20,9 @@ export const config = {
   aiApiKey: process.env.AI_API_KEY || process.env.GEMINI_API_KEY || '',
   aiProvider: process.env.AI_PROVIDER || 'gemini',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
+
+  // Real Job Provider API Keys
+  adzunaAppId: process.env.ADZUNA_APP_ID || '',
+  adzunaAppKey: process.env.ADZUNA_APP_KEY || '',
+  joobleApiKey: process.env.JOOBLE_API_KEY || '',
 };

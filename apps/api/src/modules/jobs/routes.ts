@@ -8,24 +8,154 @@ import { AuthRequest, authMiddleware, requireAdmin } from '../../middleware/auth
 import { validateIdParam } from '../../middleware/sanitize.js';
 import { calculateJobMatch } from '../../services/matchingEngine.js';
 import { aiProvider } from '../../services/aiProvider.js';
+import { config } from '../../config/env.js';
 
 export const jobsRouter = Router();
 
-// POST /api/v1/jobs/sync-live - Sync real live jobs from public job board APIs (Admin only)
-jobsRouter.post('/sync-live', authMiddleware, requireAdmin, async (req: AuthRequest, res, next) => {
+/**
+ * Helper to normalize titles into canonical JobPulse roles
+ */
+function normalizeJobTitle(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes('frontend') || t.includes('react') || t.includes('vue') || t.includes('ui')) return 'Frontend Developer';
+  if (t.includes('backend') || t.includes('node') || t.includes('python') || t.includes('java')) return 'Backend Engineer';
+  if (t.includes('devops') || t.includes('cloud') || t.includes('sre') || t.includes('aws')) return 'DevOps & Cloud Engineer';
+  if (t.includes('data') || t.includes('ai') || t.includes('machine learning')) return 'Data & AI Engineer';
+  return 'Full Stack Engineer';
+}
+
+/**
+ * Ingests live real jobs from multiple providers (Arbeitnow, Remotive, Adzuna, Jooble)
+ */
+async function syncRealJobsFromProviders(limit = 30): Promise<number> {
+  let count = 0;
+
+  // 1. Fetch from Arbeitnow Public Job Board API (No Key Required)
   try {
-    const { category = 'software-dev', limit = 20 } = req.body || {};
-    let importedCount = 0;
+    const res = await fetch('https://www.arbeitnow.com/api/job-board-api');
+    if (res.ok) {
+      const json = (await res.json()) as any;
+      const jobs = json.data || [];
+      for (const item of jobs.slice(0, limit)) {
+        const companyName = item.company_name || 'Global Tech';
+        const slug = companyName.toLowerCase().replace(/[^a-z0-9]/g, '-');
 
-    // Fetch from Remotive Public API
+        let company = await CompanyModel.findOne({ slug });
+        if (!company) {
+          company = await CompanyModel.create({
+            name: companyName,
+            slug,
+            industry: 'Technology & Enterprise Solutions',
+            activeJobCount: 1,
+            hiringTrend: 22,
+            verified: true,
+            isSynthetic: false,
+          });
+        }
+
+        const exists = await JobModel.findOne({ title: item.title, companyName });
+        if (!exists) {
+          const tags = Array.isArray(item.tags) ? item.tags : ['React', 'TypeScript', 'Node.js'];
+          await JobModel.create({
+            title: item.title,
+            normalizedTitle: normalizeJobTitle(item.title),
+            companyId: company._id,
+            companyName: company.name,
+            location: item.location || 'Remote - Global',
+            country: 'Remote',
+            city: 'Remote',
+            remoteType: item.remote ? 'REMOTE' : 'HYBRID',
+            employmentType: 'FULL_TIME',
+            salaryMin: 2200000,
+            salaryMax: 4200000,
+            salaryCurrency: 'INR',
+            experienceLevel: 'MID',
+            description: item.description ? item.description.replace(/<[^>]*>?/gm, ' ').slice(0, 1500).trim() : 'Join our high-impact engineering team.',
+            requirements: ['Proven experience in software engineering', 'Solid understanding of modern web architectures', 'Strong problem solving skills'],
+            responsibilities: ['Architect scalable services', 'Collaborate across engineering squads', 'Maintain test coverage and performance'],
+            benefits: ['Flexible remote work', 'Competitive compensation & equity', 'Health & wellness stipends'],
+            skills: tags.slice(0, 8),
+            postedDate: new Date(),
+            status: 'ACTIVE',
+            isSynthetic: false,
+            applicationUrl: item.url || 'https://www.arbeitnow.com',
+          });
+          count++;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Jobs Sync] Arbeitnow API notice:', err);
+  }
+
+  // 2. Fetch from Remotive Public API (No Key Required)
+  try {
+    const res = await fetch('https://remotive.com/api/remote-jobs?category=software-dev&limit=25');
+    if (res.ok) {
+      const json = (await res.json()) as any;
+      const jobs = json.jobs || [];
+      for (const item of jobs.slice(0, limit)) {
+        const companyName = item.company_name || 'Tech Innovators';
+        const slug = companyName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+
+        let company = await CompanyModel.findOne({ slug });
+        if (!company) {
+          company = await CompanyModel.create({
+            name: companyName,
+            slug,
+            industry: 'Software & Cloud Infrastructure',
+            activeJobCount: 1,
+            hiringTrend: 19,
+            verified: true,
+            isSynthetic: false,
+          });
+        }
+
+        const exists = await JobModel.findOne({ title: item.title, companyName });
+        if (!exists) {
+          const tags = Array.isArray(item.tags) ? item.tags : ['JavaScript', 'Node.js', 'Python'];
+          await JobModel.create({
+            title: item.title,
+            normalizedTitle: normalizeJobTitle(item.title),
+            companyId: company._id,
+            companyName: company.name,
+            location: item.candidate_required_location || 'Remote - Worldwide',
+            country: 'Remote',
+            city: 'Remote',
+            remoteType: 'REMOTE',
+            employmentType: item.job_type === 'full_time' ? 'FULL_TIME' : 'CONTRACT',
+            salaryMin: 2000000,
+            salaryMax: 3800000,
+            salaryCurrency: 'INR',
+            experienceLevel: item.title.toLowerCase().includes('senior') ? 'SENIOR' : 'MID',
+            description: item.description ? item.description.replace(/<[^>]*>?/gm, ' ').slice(0, 1500).trim() : 'Join a distributed team building next-generation platforms.',
+            requirements: ['Experience with modern cloud stacks', 'Clear technical communication', 'Customer-centric mindset'],
+            responsibilities: ['Build robust microservices', 'Participate in code reviews', 'Improve service reliability'],
+            benefits: ['100% Remote flexibility', 'Learning budget', 'Health insurance'],
+            skills: tags.slice(0, 8),
+            postedDate: item.publication_date ? new Date(item.publication_date) : new Date(),
+            status: 'ACTIVE',
+            isSynthetic: false,
+            applicationUrl: item.url || 'https://remotive.com',
+          });
+          count++;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Jobs Sync] Remotive API notice:', err);
+  }
+
+  // 3. Optional: Adzuna API Integration (If ADZUNA_APP_ID & ADZUNA_APP_KEY provided in .env)
+  if (config.adzunaAppId && config.adzunaAppKey) {
     try {
-      const remotiveRes = await fetch(`https://remotive.com/api/remote-jobs?category=${category}&limit=${limit}`);
-      if (remotiveRes.ok) {
-        const data = (await remotiveRes.json()) as any;
-        const jobs = data.jobs || [];
-
-        for (const rJob of jobs) {
-          const companyName = rJob.company_name || 'Global Tech';
+      const url = `https://api.adzuna.com/v1/api/jobs/in/search/1?app_id=${config.adzunaAppId}&app_key=${config.adzunaAppKey}&results_per_page=20&what=developer`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const json = (await res.json()) as any;
+        const results = json.results || [];
+        for (const item of results) {
+          const companyName = item.company?.display_name || 'Enterprise Corp';
           const slug = companyName.toLowerCase().replace(/[^a-z0-9]/g, '-');
 
           let company = await CompanyModel.findOne({ slug });
@@ -33,84 +163,122 @@ jobsRouter.post('/sync-live', authMiddleware, requireAdmin, async (req: AuthRequ
             company = await CompanyModel.create({
               name: companyName,
               slug,
-              industry: 'Technology & Cloud',
+              industry: 'Enterprise Technology',
               activeJobCount: 1,
-              hiringTrend: 18,
+              hiringTrend: 15,
               verified: true,
               isSynthetic: false,
             });
           }
 
-          const existingJob = await JobModel.findOne({
-            title: rJob.title,
-            companyName: companyName,
-          });
-
-          if (!existingJob) {
-            const tags = Array.isArray(rJob.tags) ? rJob.tags : [];
-            const skills = tags.length > 0 ? tags : ['React', 'TypeScript', 'Node.js', 'API'];
-
-            const titleLower = rJob.title.toLowerCase();
-            const normalizedTitle = titleLower.includes('frontend')
-              ? 'Frontend Developer'
-              : titleLower.includes('backend')
-              ? 'Backend Engineer'
-              : titleLower.includes('devops') || titleLower.includes('cloud')
-              ? 'DevOps & Cloud Engineer'
-              : titleLower.includes('data') || titleLower.includes('ai')
-              ? 'Data & AI Engineer'
-              : 'Full Stack Engineer';
-
+          const exists = await JobModel.findOne({ title: item.title, companyName });
+          if (!exists) {
             await JobModel.create({
-              title: rJob.title,
-              normalizedTitle,
+              title: item.title,
+              normalizedTitle: normalizeJobTitle(item.title),
               companyId: company._id,
               companyName: company.name,
-              location: rJob.candidate_required_location || 'Remote - Worldwide',
-              country: 'Remote',
-              city: 'Remote',
-              remoteType: 'REMOTE',
-              employmentType: rJob.job_type === 'full_time' ? 'FULL_TIME' : 'CONTRACT',
-              salaryMin: 1800000,
-              salaryMax: 3500000,
+              location: item.location?.display_name || 'India',
+              country: 'India',
+              city: item.location?.area?.[0] || 'Bangalore',
+              remoteType: item.title.toLowerCase().includes('remote') ? 'REMOTE' : 'HYBRID',
+              employmentType: 'FULL_TIME',
+              salaryMin: item.salary_min || 1500000,
+              salaryMax: item.salary_max || 3000000,
               salaryCurrency: 'INR',
-              experienceLevel:
-                titleLower.includes('senior') || titleLower.includes('lead')
-                  ? 'SENIOR'
-                  : titleLower.includes('junior')
-                  ? 'ENTRY'
-                  : 'MID',
-              description: rJob.description
-                ? rJob.description.replace(/<[^>]*>?/gm, ' ').slice(0, 1500).trim()
-                : 'Join our engineering team building resilient distributed cloud platforms.',
-              requirements: [
-                'Proven experience in software engineering and web application architecture',
-                'Strong command of modern frameworks and clean coding patterns',
-                'Excellent collaboration, communication, and problem-solving skills',
-              ],
-              responsibilities: [
-                'Design, build, and maintain mission-critical web applications and APIs',
-                'Collaborate across cross-functional product and engineering teams',
-                'Ensure high code quality, security, and performance benchmarks',
-              ],
-              benefits: ['100% Remote flexibility', 'Competitive salary & equity options', 'Health insurance & annual stipend'],
-              skills: skills.slice(0, 8),
-              postedDate: rJob.publication_date ? new Date(rJob.publication_date) : new Date(),
+              experienceLevel: 'MID',
+              description: item.description || 'Full-time software development opportunity with industry competitive packages.',
+              requirements: ['Hands-on software development experience', 'Database knowledge (SQL/NoSQL)', 'Team player'],
+              responsibilities: ['Deliver features on time', 'Write unit tests', 'Monitor application metrics'],
+              benefits: ['Health coverage', 'Professional development stipend', 'Performance bonus'],
+              skills: ['Java', 'Python', 'React', 'Node.js', 'SQL'],
+              postedDate: item.created ? new Date(item.created) : new Date(),
               status: 'ACTIVE',
               isSynthetic: false,
-              applicationUrl: rJob.url || 'https://remotive.com',
+              applicationUrl: item.redirect_url || 'https://www.adzuna.in',
             });
-            importedCount++;
+            count++;
           }
         }
       }
-    } catch (apiErr) {
-      console.warn('[Jobs Sync] Remotive API fetch notice:', apiErr);
+    } catch (adzunaErr) {
+      console.warn('[Jobs Sync] Adzuna API fetch notice:', adzunaErr);
     }
+  }
 
+  // 4. Optional: Jooble API Integration (If JOOBLE_API_KEY provided in .env)
+  if (config.joobleApiKey) {
+    try {
+      const res = await fetch(`https://jooble.org/api/${config.joobleApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keywords: 'software engineer', location: '' }),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as any;
+        const jobs = json.jobs || [];
+        for (const item of jobs.slice(0, 20)) {
+          const companyName = item.company || 'Tech Solutions';
+          const slug = companyName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+
+          let company = await CompanyModel.findOne({ slug });
+          if (!company) {
+            company = await CompanyModel.create({
+              name: companyName,
+              slug,
+              industry: 'Digital Systems',
+              activeJobCount: 1,
+              hiringTrend: 17,
+              verified: true,
+              isSynthetic: false,
+            });
+          }
+
+          const exists = await JobModel.findOne({ title: item.title, companyName });
+          if (!exists) {
+            await JobModel.create({
+              title: item.title,
+              normalizedTitle: normalizeJobTitle(item.title),
+              companyId: company._id,
+              companyName: company.name,
+              location: item.location || 'Remote',
+              country: 'Global',
+              city: 'Remote',
+              remoteType: 'REMOTE',
+              employmentType: 'FULL_TIME',
+              salaryMin: 1800000,
+              salaryMax: 3200000,
+              salaryCurrency: 'INR',
+              experienceLevel: 'MID',
+              description: item.snippet ? item.snippet.replace(/<[^>]*>?/gm, ' ') : 'Software engineering role.',
+              requirements: ['Strong coding foundation', 'Problem solving skills'],
+              responsibilities: ['Develop clean modular software', 'Collaborate with agile team'],
+              benefits: ['Flexible working hours', 'Competitive base salary'],
+              skills: ['JavaScript', 'TypeScript', 'React', 'Node.js'],
+              postedDate: item.updated ? new Date(item.updated) : new Date(),
+              status: 'ACTIVE',
+              isSynthetic: false,
+              applicationUrl: item.link || 'https://jooble.org',
+            });
+            count++;
+          }
+        }
+      }
+    } catch (joobleErr) {
+      console.warn('[Jobs Sync] Jooble API fetch notice:', joobleErr);
+    }
+  }
+
+  return count;
+}
+
+// POST /api/v1/jobs/sync-live - Sync real live jobs from public job board APIs (Admin only)
+jobsRouter.post('/sync-live', authMiddleware, requireAdmin, async (req: AuthRequest, res, next) => {
+  try {
+    const importedCount = await syncRealJobsFromProviders(30);
     res.json({
       success: true,
-      message: `Successfully imported ${importedCount} live jobs into MongoDB`,
+      message: `Successfully imported ${importedCount} live real jobs from active providers into MongoDB`,
       importedCount,
     });
   } catch (err) {
@@ -343,3 +511,5 @@ jobsRouter.get('/:id', authMiddleware, validateIdParam, async (req: AuthRequest,
     next(err);
   }
 });
+
+export { syncRealJobsFromProviders };
