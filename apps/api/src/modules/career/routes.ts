@@ -140,9 +140,9 @@ careerRouter.post('/roadmap', authMiddleware, async (req: AuthRequest, res, next
     const aiRoadmap = await aiProvider.generateRoadmap(targetRole, currentSkills);
     const resources = await LearningResourceModel.find({}).lean();
 
-    const steps = aiRoadmap.steps.map((step, idx) => {
+    const steps = aiRoadmap.steps.map((step: any, idx: number) => {
       const matchedResources = resources.filter((r) =>
-        r.skills.some((s) => s.toLowerCase() === step.skillName.toLowerCase())
+        r.skills.some((s: string) => s.toLowerCase() === step.skillName.toLowerCase())
       );
 
       return {

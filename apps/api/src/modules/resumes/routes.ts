@@ -189,7 +189,7 @@ resumesRouter.post('/upload', authMiddleware, upload.single('resume'), async (re
       const existingProfile = await ProfileModel.findOne({ userId });
       if (existingProfile) {
         const skillSet = new Set(existingProfile.skills || []);
-        aiResult.extractedSkills.forEach((s) => skillSet.add(s));
+        aiResult.extractedSkills.forEach((s: string) => skillSet.add(s));
         await ProfileModel.updateOne(
           { userId },
           {
@@ -274,7 +274,7 @@ resumesRouter.post('/:id/apply-to-profile', authMiddleware, validateIdParam, asy
 
     const currentProfile = await ProfileModel.findOne({ userId });
     const existingSkills = new Set(currentProfile?.skills || []);
-    resume.extractedSkills.forEach((s) => existingSkills.add(s));
+    resume.extractedSkills.forEach((s: string) => existingSkills.add(s));
 
     const updatedProfile = await ProfileModel.findOneAndUpdate(
       { userId },
