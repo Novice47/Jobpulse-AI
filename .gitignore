@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+coverage/
+playwright-report/
+test-results/
+.vscode/
+.idea/
+.DS_Store
+*.log
+uploads/
+
+# Requirement, prompt, and internal agent spec files
+requirements.md
+modules.md
+architecture.md
+security.md
+ANTIGRAVITY.md
+docs/
